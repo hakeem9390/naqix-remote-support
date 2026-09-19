@@ -1,0 +1,61 @@
+# MeshCentral - remote support engine for Naqix ERP customer machines.
+#
+# Runs on a DEDICATED host. Do not co-host with the Naqix prod box: this stack
+# holds SYSTEM-level access to customer machines, so its blast radius must not
+# overlap the ERP.
+#
+# TLS is terminated by nginx in front (see nginx/meshcentral.conf), so
+# MeshCentral itself listens plaintext on the internal network only.
+
+services:
+  meshcentral:
+    # Pinned. 1.2.5 is the first release carrying the CVE-2026-66420 CSWSH
+    # bypass fix; never float this to :latest.
+    image: meshcentral/meshcentral:1.2.5-postgresql
+    container_name: meshcentral
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HOSTNAME: ${MESH_HOSTNAME}
+      REVERSE_PROXY: ${MESH_HOSTNAME}
+      REVERSE_PROXY_TLS_PORT: 443
+      IFRAME: "true"
+      ALLOW_NEW_ACCOUNTS: "false"
+      WEBRTC: "true"
+    volumes:
+      - ./config/config.json:/opt/meshcentral/meshcentral-data/config.json:ro
+      - mesh-data:/opt/meshcentral/meshcentral-data
+      - mesh-files:/opt/meshcentral/meshcentral-files
+      - mesh-backup:/opt/meshcentral/meshcentral-backups
+    ports:
+      # Bound to loopback only; nginx is the sole public entry point.
+      - "127.0.0.1:4430:4430"
+    networks: [mesh]
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: meshcentral-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DATABASE}
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DATABASE}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [mesh]
+
+volumes:
+  mesh-data:
+  mesh-files:
+  mesh-backup:
+  pgdata:
+
+networks:
+  mesh:

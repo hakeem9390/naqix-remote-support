@@ -1,0 +1,74 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Ylianst/MeshCentral/master/meshcentral-config-schema.json",
+
+  "_comment_settings": "Keys prefixed with _ are ignored by MeshCentral and used here as notes.",
+
+  "settings": {
+    "_cert": "Public FQDN. Agents pin this at install time - changing it later orphans every deployed agent.",
+    "cert": "remote.naqix.example",
+
+    "_tlsOffload": "nginx terminates TLS. MeshCentral then serves plaintext on 4430, bound to loopback in compose.",
+    "tlsOffload": "127.0.0.1",
+    "port": 4430,
+    "aliasPort": 443,
+    "redirPort": 0,
+
+    "_postgres": "PostgreSQL rather than the NeDB default: NeDB does not hold up past a few hundred devices.",
+    "postgres": {
+      "host": "postgres",
+      "port": 5432,
+      "user": "meshcentral",
+      "password": "SAME_AS_PG_PASSWORD_IN_DOTENV",
+      "database": "meshcentral"
+    },
+
+    "_WANonly": "Customer machines reach us over the internet only; no LAN discovery.",
+    "WANonly": true,
+
+    "_sessionKey": "openssl rand -hex 32. Rotating this logs out every operator.",
+    "sessionKey": "CHANGE_ME_openssl_rand_hex_32",
+
+    "_webrtc": "Lets the browser take a direct data path to the agent when possible. Also the transport Spike C2 would carry H.264 over.",
+    "webrtc": true,
+
+    "_agentPong": "Seconds between agent keepalives. Lower = faster offline detection, more idle traffic.",
+    "agentPong": 300,
+
+    "_plugins": "Disabled: plugins run server-side with full privileges and are an unnecessary attack surface.",
+    "plugins": { "enabled": false }
+  },
+
+  "domains": {
+    "": {
+      "title": "Naqix Remote Support",
+      "title2": "",
+
+      "_newAccounts": "Closed registration. Operators are created by an admin; customers never get accounts.",
+      "newAccounts": false,
+
+      "_allowFraming": "Required so the React controller (Track A2) and Naqix can embed the viewer.",
+      "allowFraming": true,
+
+      "_twoFactorAuth": "TOTP mandatory for every operator. These accounts hold SYSTEM on customer machines.",
+      "twoFactorAuth": {
+        "all": true
+      },
+
+      "_agentInviteCodes": "Enables per-customer install links, the basis of the enrollment flow in the plan.",
+      "agentInviteCodes": true,
+
+      "_sessionRecording": "Recorded sessions are both an audit control and a sales asset for an ERP vendor.",
+      "sessionRecording": {
+        "onlySelectedUsers": false,
+        "onlySelectedDeviceGroups": false,
+        "filepath": "/opt/meshcentral/meshcentral-files/recordings",
+        "index": true
+      },
+
+      "_limits": "Ceiling on damage from a compromised operator account.",
+      "limits": {
+        "maxDevices": 2000
+      }
+    }
+  }
+}
