@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spike C2 — WebCodecs viewer</title>
+<style>
+  :root { color-scheme: dark; --bg:#16181c; --card:#1e2127; --fg:#e8e3da; --dim:#8d8a84; --accent:#e0a33e; --bad:#d9534f; --good:#4caf7d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px ui-sans-serif,system-ui,sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #2a2e36; }
+  h1 { font-size:14px; margin:0; font-weight:600; }
+  #state { font-size:12px; color:var(--dim); }
+  main { display:flex; gap:16px; padding:16px; flex-wrap:wrap; align-items:flex-start; }
+  canvas { background:#000; max-width:100%; border-radius:8px; border:1px solid #2a2e36; }
+  #stats { min-width:260px; background:var(--card); border:1px solid #2a2e36; border-radius:8px; padding:12px; }
+  .row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #24272e; }
+  .row:last-child { border:0; }
+  .k { color:var(--dim); }
+  .v { font-variant-numeric:tabular-nums; }
+  .bad { color:var(--bad); }
+  .good { color:var(--good); }
+  #fatal { display:none; margin:16px; padding:16px; border:1px solid var(--bad); border-radius:8px; background:#2a1d1d; }
+  code { background:#0f1114; padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Spike C2 — Annex-B over WebSocket → WebCodecs</h1>
+  <span id="state">connecting…</span>
+</header>
+
+<div id="fatal"></div>
+
+<main>
+  <canvas id="view" width="640" height="360"></canvas>
+  <div id="stats">
+    <div class="row"><span class="k">codec</span><span class="v" id="s-codec">—</span></div>
+    <div class="row"><span class="k">resolution</span><span class="v" id="s-res">—</span></div>
+    <div class="row"><span class="k">rendered fps</span><span class="v" id="s-fps">—</span></div>
+    <div class="row"><span class="k">frame gap p50 / p95</span><span class="v" id="s-gap">—</span></div>
+    <div class="row"><span class="k">decode latency</span><span class="v" id="s-declat">—</span></div>
+    <div class="row"><span class="k">transport latency</span><span class="v" id="s-netlat">—</span></div>
+    <div class="row"><span class="k">worst transport</span><span class="v" id="s-netmax">—</span></div>
+    <div class="row"><span class="k">frames decoded</span><span class="v" id="s-frames">0</span></div>
+    <div class="row"><span class="k">keyframes</span><span class="v" id="s-keys">0</span></div>
+    <div class="row"><span class="k">queue depth</span><span class="v" id="s-queue">0</span></div>
+    <div class="row"><span class="k">errors</span><span class="v" id="s-err">0</span></div>
+  </div>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id)
+const canvas = $('view')
+const ctx = canvas.getContext('2d')
+
+function fatal(html) {
+  $('fatal').style.display = 'block'
+  $('fatal').innerHTML = html
+  $('state').textContent = 'unsupported'
+}
+
+// Criterion: does this browser support WebCodecs at all? A negative here is a
+// finding, not a failure - it defines which browsers can be controllers.
+if (!('VideoDecoder' in window)) {
+  fatal(`<strong>No WebCodecs in this browser.</strong><br>
+    <code>VideoDecoder</code> is undefined, so this transport cannot work here.
+    That is a real result: record the browser and version. If this is Safari or
+    Firefox, it constrains which browsers can act as controllers and pushes
+    toward Spike B (WebRTC) instead.`)
+  throw new Error('no WebCodecs')
+}
+
+let decoder = null
+let seenKeyframe = false
+let frames = 0, keys = 0, errors = 0
+let decLat = 0, netLat = 0, netMax = 0
+let lastRenderTs = performance.now()
+/** Render times inside a rolling 1s window. Counting is bounded by reality;
+ *  an exponential average is not, and spikes to nonsense when frames arrive in
+ *  bursts - which is precisely the condition we are trying to measure. */
+const renderWindow = []
+/** Inter-arrival gaps, so bunching shows up as spread rather than as a
+ *  meaningless framerate. Smoothness is what a remote desktop is judged on. */
+const gaps = []
+const inflight = new Map()
+
+function render(frame) {
+  if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+    canvas.width = frame.displayWidth
+    canvas.height = frame.displayHeight
+    $('s-res').textContent = `${frame.displayWidth}×${frame.displayHeight}`
+  }
+  ctx.drawImage(frame, 0, 0)
+  // Closing is mandatory. A VideoFrame holds a GPU buffer, and leaking them
+  // stalls the decoder within a second or two - which presents as "WebCodecs
+  // is slow" rather than as a leak.
+  frame.close()
+
+  const now = performance.now()
+  gaps.push(now - lastRenderTs)
+  if (gaps.length > 180) gaps.shift()
+  lastRenderTs = now
+  renderWindow.push(now)
+  while (renderWindow.length && now - renderWindow[0] > 1000) renderWindow.shift()
+}
+
+function makeDecoder(codec) {
+  const d = new VideoDecoder({
+    output: (frame) => {
+      const started = inflight.get(frame.timestamp)
+      if (started !== undefined) {
+        const lat = performance.now() - started.at
+        decLat = decLat ? decLat * 0.9 + lat * 0.1 : lat
+        inflight.delete(frame.timestamp)
+      }
+      frames++
+      render(frame)
+    },
+    error: (e) => {
+      errors++
+      $('s-err').className = 'v bad'
+      console.error('decoder error', e)
+      $('state').textContent = `decoder error: ${e.message}`
+    },
+  })
+  d.configure({
+    codec,
+    // Tells the implementation to minimise buffering rather than maximise
+    // throughput. Without it decoders happily hold frames, which is right for
+    // playback and wrong for remote desktop.
+    optimizeForLatency: true,
+  })
+  return d
+}
+
+const ws = new WebSocket(`ws://${location.host}`)
+ws.binaryType = 'arraybuffer'
+
+ws.onopen = () => { $('state').textContent = 'connected' }
+ws.onclose = () => { $('state').textContent = 'disconnected' }
+ws.onerror = () => { $('state').textContent = 'websocket error' }
+
+ws.onmessage = async (ev) => {
+  if (typeof ev.data === 'string') {
+    const msg = JSON.parse(ev.data)
+    if (msg.type === 'config') {
+      $('s-codec').textContent = msg.codec
+      const support = await VideoDecoder.isConfigSupported({ codec: msg.codec })
+      if (!support.supported) {
+        fatal(`<strong>Codec <code>${msg.codec}</code> is not supported here.</strong><br>
+          The stream's SPS asks for a profile/level this browser will not decode.
+          Note the GPU that produced it - hardware encoders pick different
+          profiles per vendor, so this can pass on one machine and fail on another.`)
+        return
+      }
+      decoder = makeDecoder(msg.codec)
+      $('state').textContent = 'decoding'
+    }
+    return
+  }
+
+  if (!decoder) return
+  const view = new Uint8Array(ev.data)
+  const dv = new DataView(ev.data)
+  const isKey = view[0] === 1
+  const timestamp = Number(dv.getBigUint64(1))
+  const sentAt = Number(dv.getBigUint64(9))
+  const payload = view.subarray(17)
+
+  // Feeding delta frames before the first keyframe gives the decoder
+  // references it does not have. It produces garbage or errors, and looks like
+  // a codec bug rather than a sequencing one.
+  if (!seenKeyframe) {
+    if (!isKey) return
+    seenKeyframe = true
+  }
+  if (isKey) keys++
+
+  const lat = Date.now() - sentAt
+  netLat = netLat ? netLat * 0.9 + lat * 0.1 : lat
+  if (lat > netMax) netMax = lat
+
+  inflight.set(timestamp, { at: performance.now() })
+  try {
+    decoder.decode(new EncodedVideoChunk({
+      type: isKey ? 'key' : 'delta',
+      timestamp,
+      data: payload,
+    }))
+  } catch (e) {
+    errors++
+    console.error('decode threw', e)
+  }
+}
+
+setInterval(() => {
+  $('s-fps').textContent = renderWindow.length || '—'
+  if (gaps.length > 10) {
+    const sorted = [...gaps].sort((a, b) => a - b)
+    const p = (q) => sorted[Math.floor(sorted.length * q)]
+    const p50 = p(0.5), p95 = p(0.95)
+    $('s-gap').textContent = `${p50.toFixed(0)} / ${p95.toFixed(0)} ms`
+    // A p95 far above p50 means stutter, however healthy the average looks.
+    $('s-gap').className = p95 > p50 * 3 ? 'v bad' : 'v'
+  }
+  $('s-declat').textContent = decLat ? `${decLat.toFixed(1)} ms` : '—'
+  $('s-netlat').textContent = netLat ? `${netLat.toFixed(1)} ms` : '—'
+  $('s-netmax').textContent = netMax ? `${netMax.toFixed(0)} ms` : '—'
+  $('s-frames').textContent = frames
+  $('s-keys').textContent = keys
+  $('s-queue').textContent = decoder ? decoder.decodeQueueSize : 0
+  $('s-err').textContent = errors
+  if (frames > 0) $('s-fps').className = 'v good'
+}, 250)
+</script>
+</body>
+</html>

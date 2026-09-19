@@ -1,0 +1,8 @@
+{
+  "name": "webcodecs-viewer-spike",
+  "private": true,
+  "type": "module",
+  "description": "Spike C2: Annex-B H.264 over WebSocket -> browser WebCodecs VideoDecoder",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": { "ws": "^8.18.0" }
+}
