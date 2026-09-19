@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spike B — GCC receiver</title>
+<style>
+  :root { color-scheme: dark; --bg:#16181c; --card:#1e2127; --fg:#e8e3da; --dim:#8d8a84; --good:#4caf7d; --bad:#d9534f; }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px ui-sans-serif,system-ui,sans-serif }
+  header { padding:12px 16px; border-bottom:1px solid #2a2e36; display:flex; gap:12px; align-items:center }
+  h1 { font-size:14px; margin:0; font-weight:600 }
+  #state { font-size:12px; color:var(--dim) }
+  main { display:flex; gap:16px; padding:16px; flex-wrap:wrap; align-items:flex-start }
+  video { background:#000; max-width:100%; width:640px; border-radius:8px; border:1px solid #2a2e36 }
+  #stats { min-width:260px; background:var(--card); border:1px solid #2a2e36; border-radius:8px; padding:12px }
+  .row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #24272e }
+  .row:last-child { border:0 }
+  .k { color:var(--dim) } .v { font-variant-numeric:tabular-nums }
+  p.note { color:var(--dim); font-size:12px; max-width:640px; padding:0 16px; line-height:1.5 }
+</style>
+</head>
+<body>
+<header><h1>Spike B — receiving H.264 over WebRTC</h1><span id="state">connecting…</span></header>
+<main>
+  <video id="v" autoplay playsinline muted></video>
+  <div id="stats">
+    <div class="row"><span class="k">received</span><span class="v" id="s-bitrate">—</span></div>
+    <div class="row"><span class="k">frames decoded</span><span class="v" id="s-frames">0</span></div>
+    <div class="row"><span class="k">frames dropped</span><span class="v" id="s-dropped">0</span></div>
+    <div class="row"><span class="k">packets lost</span><span class="v" id="s-lost">0</span></div>
+    <div class="row"><span class="k">jitter</span><span class="v" id="s-jitter">—</span></div>
+    <div class="row"><span class="k">nack sent</span><span class="v" id="s-nack">0</span></div>
+    <div class="row"><span class="k">pli sent</span><span class="v" id="s-pli">0</span></div>
+  </div>
+</main>
+<p class="note">
+  This page is only the far end. The measurement that decides the kill criterion
+  is the sender's target-bitrate trace in the terminal and in
+  <code>gcc-trace.csv</code>. Compare the received rate here against that target:
+  if the target moves but the received rate does not follow, the estimator is
+  reporting a number nothing is acting on.
+</p>
+
+<script type="module">
+const $ = (id) => document.getElementById(id)
+const pc = new RTCPeerConnection()
+
+// recvonly: the browser is the receiver, and it is the browser's TWCC feedback
+// that the sender's estimator runs on. No feedback, no estimate.
+pc.addTransceiver('video', { direction: 'recvonly' })
+
+pc.ontrack = (e) => { $('v').srcObject = e.streams[0] }
+pc.onconnectionstatechange = () => { $('state').textContent = pc.connectionState }
+
+const offer = await pc.createOffer()
+await pc.setLocalDescription(offer)
+
+// Non-trickle, matching the sender: wait for gathering so one POST carries
+// every candidate.
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === 'complete') return resolve()
+  pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && resolve()
+})
+
+const res = await fetch('/offer', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(pc.localDescription),
+})
+await pc.setRemoteDescription(await res.json())
+
+let lastBytes = 0, lastAt = performance.now()
+setInterval(async () => {
+  const report = await pc.getStats()
+  report.forEach((s) => {
+    if (s.type !== 'inbound-rtp' || s.kind !== 'video') return
+    const now = performance.now()
+    const dt = (now - lastAt) / 1000
+    if (dt > 0 && lastBytes) {
+      const bps = ((s.bytesReceived - lastBytes) * 8) / dt
+      $('s-bitrate').textContent = `${(bps / 1000).toFixed(0)} kbps`
+      $('s-bitrate').className = 'v good'
+    }
+    lastBytes = s.bytesReceived
+    lastAt = now
+    $('s-frames').textContent = s.framesDecoded ?? 0
+    $('s-dropped').textContent = s.framesDropped ?? 0
+    $('s-lost').textContent = s.packetsLost ?? 0
+    $('s-jitter').textContent = s.jitter != null ? `${(s.jitter * 1000).toFixed(1)} ms` : '—'
+    $('s-nack').textContent = s.nackCount ?? 0
+    $('s-pli').textContent = s.pliCount ?? 0
+    if ((s.packetsLost ?? 0) > 0) $('s-lost').className = 'v bad'
+  })
+}, 1000)
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+[package]
+name = "webrtc-gcc"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Spike B: does webrtc-rs 0.21 congestion control actually track a bandwidth step?"
+
+[dependencies]
+anyhow.workspace = true
+# Pinned exactly. GCC landed in 0.21.0 on 2026-09-19 and the API was rewritten
+# twice in the preceding nine months; a caret range here would silently test a
+# different implementation than the one this spike reports on.
+webrtc = "=0.21.0"
+rtc = "=0.21.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+async-trait = "0.1"
+serde_json = "1"
+bytes = "1"
+rand = "0.9"
