@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["spikes/wgc-mf-encode"]
+
+[workspace.package]
+edition = "2021"
+publish = false
+
+# Pinned, not floated. The windows crate breaks API between minors, and
+# webrtc was rewritten twice in nine months - a spike that silently drifts
+# to a different version is a spike that proves nothing.
+[workspace.dependencies]
+windows = "=0.62.2"
+windows-capture = "=2.0.1"
+anyhow = "1"
