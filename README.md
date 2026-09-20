@@ -1,5 +1,7 @@
 # Remote Access App
 
+[![Repo](https://img.shields.io/badge/GitHub-naqix--remote--support-181717?logo=github)](https://github.com/hakeem9390/naqix-remote-support)
+
 Unattended remote support into Naqix ERP customers' Windows PCs, plus file
 transfer. Controlled from macOS and occasionally a phone.
 
