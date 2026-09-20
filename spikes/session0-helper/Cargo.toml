@@ -1,0 +1,25 @@
+[package]
+name = "session0-helper"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+description = "Spike A: can a SYSTEM service capture the lock screen, a logged-out machine, and the UAC secure desktop?"
+
+[dependencies]
+anyhow.workspace = true
+windows-capture.workspace = true
+windows-service = "=0.8.1"
+
+[dependencies.windows]
+workspace = true
+features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Threading",
+  "Win32_System_RemoteDesktop",
+  "Win32_System_Environment",
+  "Win32_System_StationsAndDesktops",
+  "Win32_System_SystemServices",
+  "Win32_Graphics_Gdi",
+  "Win32_System_SystemInformation",
+]
