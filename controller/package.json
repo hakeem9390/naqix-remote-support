@@ -1,6 +1,7 @@
 {
   "name": "naqix-remote-controller",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "description": "Operator-facing controller UI for Naqix remote support. MeshCentral is the engine; this is the face.",
