@@ -1,6 +1,9 @@
 # Remote Access App
 
 [![Repo](https://img.shields.io/badge/GitHub-naqix--remote--support-181717?logo=github)](https://github.com/hakeem9390/naqix-remote-support)
+[![Last commit](https://img.shields.io/github/last-commit/hakeem9390/naqix-remote-support?logo=git&logoColor=white)](https://github.com/hakeem9390/naqix-remote-support/commits/master)
+[![Top language](https://img.shields.io/github/languages/top/hakeem9390/naqix-remote-support)](https://github.com/hakeem9390/naqix-remote-support)
+[![Repo size](https://img.shields.io/github/repo-size/hakeem9390/naqix-remote-support)](https://github.com/hakeem9390/naqix-remote-support)
 
 Unattended remote support into Naqix ERP customers' Windows PCs, plus file
 transfer. Controlled from macOS and occasionally a phone.
